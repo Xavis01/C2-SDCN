@@ -9,6 +9,7 @@ Estados:
   aberto   -> recusa na hora, sem tentar (servico esta quebrado)
   meio     -> deixa passar UMA chamada de teste para ver se voltou
 """
+import threading
 import time
 
 
@@ -24,13 +25,15 @@ class CircuitBreaker:
         self.falhas = 0
         self.estado = "fechado"
         self.aberto_em = 0.0
+        self._trava = threading.Lock()  # o FastAPI roda as rotas em varias threads
 
     def chamar(self, funcao, *args, **kwargs):
-        if self.estado == "aberto":
-            if time.time() - self.aberto_em >= self.espera_segundos:
-                self.estado = "meio"
-            else:
-                raise CircuitoAberto("disjuntor aberto: chamada recusada")
+        with self._trava:
+            if self.estado == "aberto":
+                if time.time() - self.aberto_em >= self.espera_segundos:
+                    self.estado = "meio"
+                else:
+                    raise CircuitoAberto("disjuntor aberto: chamada recusada")
         try:
             resultado = funcao(*args, **kwargs)
         except Exception:
@@ -40,11 +43,13 @@ class CircuitBreaker:
         return resultado
 
     def _registrar_falha(self):
-        self.falhas += 1
-        if self.falhas >= self.limite_falhas or self.estado == "meio":
-            self.estado = "aberto"
-            self.aberto_em = time.time()
+        with self._trava:
+            self.falhas += 1
+            if self.falhas >= self.limite_falhas or self.estado == "meio":
+                self.estado = "aberto"
+                self.aberto_em = time.time()
 
     def _registrar_sucesso(self):
-        self.falhas = 0
-        self.estado = "fechado"
+        with self._trava:
+            self.falhas = 0
+            self.estado = "fechado"
