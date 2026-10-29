@@ -1,20 +1,25 @@
 """
-Servico 1 - INGESTAO: recebe documentos, gera embeddings e armazena.
+Servico 1 - INGESTAO (API): recebe documentos e publica na fila.
 
-JA PRONTO: indexacao em memoria e a rota de status.
-TAREFA 1: persistir o indice em disco para nao perder ao reiniciar.
+Quem gera os embeddings e salva o indice e o worker (worker.py), que roda
+como outro processo. Assim o POST /indexar nao fica preso esperando.
 
 Rodar: uvicorn servicos.ingestao.app:app --port 8001
 """
-from fastapi import FastAPI
+import logging
+
+import redis
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-from servicos.comum.embeddings import Vetorizador
+from servicos.comum import fila
+from servicos.ingestao import indice
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [ingestao] %(message)s")
+log = logging.getLogger(__name__)
 
 app = FastAPI(title="Ingestao - C2.A2")
-
-vetorizador = Vetorizador()
-INDICE = []
+r = fila.conectar()
 
 
 class Documento(BaseModel):
@@ -22,29 +27,42 @@ class Documento(BaseModel):
     origem: str = "desconhecida"
 
 
-@app.post("/indexar")
+@app.post("/indexar", status_code=202)
 def indexar(docs: list[Documento]):
-    textos = [d.texto for d in docs]
-    vetorizador.ajustar([d["texto"] for d in INDICE] + textos or textos)
-    INDICE.clear()
-    # reindexa tudo com o vocabulario novo
-    for d in docs:
-        INDICE.append({"texto": d.texto, "origem": d.origem})
-    for item in INDICE:
-        item["vetor"] = vetorizador.vetorizar(item["texto"])
-    return {"indexados": len(INDICE)}
+    if not docs:
+        raise HTTPException(400, "mande ao menos um documento")
+    try:
+        tarefa_id = fila.publicar(r, [d.model_dump() for d in docs])
+    except redis.RedisError as e:
+        log.error("redis fora do ar: %s", e)
+        raise HTTPException(503, "fila indisponivel, tente de novo")
+    log.info("tarefa %s publicada com %d docs", tarefa_id, len(docs))
+    return {"tarefa": tarefa_id, "status": "na_fila"}
+
+
+@app.get("/tarefas/{tarefa_id}")
+def ver_tarefa(tarefa_id: str):
+    st = fila.status(r, tarefa_id)
+    if not st:
+        raise HTTPException(404, "tarefa nao encontrada")
+    return {"tarefa": tarefa_id, **st}
 
 
 @app.get("/indice")
-def indice():
+def ver_indice():
     """Consumido pelo servico de recuperacao."""
-    return {"total": len(INDICE),
-            "itens": [{"texto": i["texto"], "origem": i["origem"],
-                       "vetor": i["vetor"]} for i in INDICE]}
+    dados = indice.carregar()
+    return {"versao": dados["versao"], "total": len(dados["itens"]),
+            "itens": dados["itens"]}
 
 
 @app.get("/saude")
 def saude():
-    return {"status": "ok", "documentos": len(INDICE)}
-
-# TAREFA 1: persistir o indice (arquivo ou banco vetorial).
+    try:
+        r.ping()
+        redis_ok = True
+    except redis.RedisError:
+        redis_ok = False
+    dados = indice.carregar()
+    return {"status": "ok", "redis": redis_ok, "documentos": len(dados["itens"]),
+            "versao_indice": dados["versao"]}
