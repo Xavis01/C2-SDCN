@@ -1,6 +1,8 @@
 # C2.A2 - RAG Distribuido em Microsservicos
 
-Sistemas Distribuidos e Computacao em Nuvem - FAESA 2026/2 - Grupo 9
+Sistemas Distribuidos e Computacao em Nuvem - FAESA 2026/2
+
+Grupo 9 (individual): Lucas Xavier
 
 Sistema de perguntas e respostas sobre os documentos da pasta `documentos/`, dividido
 em tres microsservicos independentes. Feito em cima do kit da disciplina
@@ -92,8 +94,8 @@ Antes disso os documentos precisam ter sido indexados: `POST /indexar` -> fila -
 Precisa do Docker Desktop rodando.
 
 ```bash
-git clone <url-deste-repo>
-cd <pasta-do-repo>
+git clone https://github.com/Xavis01/C2-SDCN.git
+cd C2-SDCN
 cp .env.example .env        # deixa LLM_API_KEY vazia pra usar o modo simulado
 docker compose up -d --build
 ```
@@ -128,7 +130,7 @@ Ver logs: `docker compose logs -f geracao worker-ingestao`. Parar tudo: `docker 
 
 ### Opcao 2: sem Docker (local)
 
-Usamos Python 3.12/3.13. Ainda precisa de um Redis rodando (da pra subir so ele com
+Testei com Python 3.13 (o docker usa 3.12). Ainda precisa de um Redis rodando (da pra subir so ele com
 `docker compose up -d redis`).
 
 ```bash
@@ -176,7 +178,7 @@ curl -X POST localhost:8003/simular-falha -H "Content-Type: application/json" -d
 curl -X POST localhost:8003/simular-falha -H "Content-Type: application/json" -d '{"atraso":15}'
 ```
 
-Outros testes que fizemos:
+Outros testes que fiz:
 
 - `docker compose stop recuperacao`: a geracao devolve 503 e depois de 3 falhas o disjuntor da recuperacao abre.
 - `docker compose stop worker-ingestao` e manda um `/indexar`: a tarefa fica na fila
@@ -200,13 +202,13 @@ A documentacao automatica do FastAPI fica em `http://localhost:800X/docs`.
 
 ## Decisoes
 
-- **Fila so na indexacao**: e a etapa mais pesada e que nao precisa de resposta imediata.
+- Fila so na indexacao: e a etapa mais pesada e que nao precisa de resposta imediata.
   A pergunta ficou sincrona (REST) porque o usuario ta esperando a resposta.
-- **Indice em arquivo JSON** em vez de banco vetorial: pro tamanho da base de teste e mais que
+- Indice em arquivo JSON em vez de banco vetorial: pro tamanho da base de teste e mais que
   suficiente e nao adiciona mais um container. So o worker escreve, e a escrita e atomica
   (grava num `.tmp` e renomeia).
-- **Recuperacao reajusta o TF-IDF** nos mesmos textos do indice pra vetorizar a pergunta com o
+- A recuperacao reajusta o TF-IDF nos mesmos textos do indice pra vetorizar a pergunta com o
   mesmo vocabulario. Ela guarda em cache pela `versao` do indice, entao so reajusta quando
   algo novo e indexado.
-- **Retry dentro do disjuntor**: cada tentativa conta como uma falha, entao um LLM fora do
+- Retry dentro do disjuntor: cada tentativa conta como uma falha, entao um LLM fora do
   ar abre o circuito ja na primeira pergunta e as proximas nem esperam o timeout.
