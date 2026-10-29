@@ -1,0 +1,1 @@
+O circuit breaker (disjuntor) protege um sistema de uma dependencia que esta falhando. Depois de algumas falhas seguidas ele abre e passa a recusar as chamadas na hora, sem esperar o tempo-limite. Depois de um tempo ele deixa passar uma chamada de teste (meio aberto) e, se der certo, fecha de novo.

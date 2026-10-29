@@ -1,0 +1,1 @@
+Mensageria e a comunicacao entre servicos por meio de uma fila ou broker, como Redis, RabbitMQ ou Kafka. O produtor publica a mensagem e segue a vida, e o consumidor processa quando puder. Isso desacopla os servicos no tempo e absorve picos de carga.
