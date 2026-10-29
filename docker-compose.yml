@@ -2,6 +2,65 @@ services:
   redis:
     image: redis:7-alpine
     ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      retries: 10
 
-  # TAREFA 4: acrescente aqui os tres servicos (ingestao, recuperacao, geracao)
-  # depois de escrever um Dockerfile para cada um.
+  # servico 1: API de ingestao (so publica na fila)
+  ingestao:
+    build:
+      context: .
+      dockerfile: servicos/ingestao/Dockerfile
+    ports: ["8001:8001"]
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      INDICE_ARQUIVO: /app/dados/indice.json
+    volumes:
+      - indice:/app/dados
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  # worker da ingestao: consome a fila e grava o indice no volume
+  worker-ingestao:
+    build:
+      context: .
+      dockerfile: servicos/ingestao/Dockerfile
+    command: ["python", "-m", "servicos.ingestao.worker"]
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      INDICE_ARQUIVO: /app/dados/indice.json
+    volumes:
+      - indice:/app/dados
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  # servico 2: recuperacao
+  recuperacao:
+    build:
+      context: .
+      dockerfile: servicos/recuperacao/Dockerfile
+    ports: ["8002:8002"]
+    environment:
+      URL_INGESTAO: http://ingestao:8001
+    depends_on: [ingestao]
+
+  # servico 3: geracao (chama o LLM)
+  geracao:
+    build:
+      context: .
+      dockerfile: servicos/geracao/Dockerfile
+    ports: ["8003:8003"]
+    environment:
+      URL_RECUPERACAO: http://recuperacao:8002
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_API_URL: ${LLM_API_URL:-https://api.openai.com/v1/chat/completions}
+      LLM_MODELO: ${LLM_MODELO:-gpt-4o-mini}
+      LLM_TIMEOUT: ${LLM_TIMEOUT:-10}
+      LLM_TENTATIVAS: ${LLM_TENTATIVAS:-3}
+    depends_on: [recuperacao]
+
+volumes:
+  indice:
